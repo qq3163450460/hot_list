@@ -1,61 +1,146 @@
 # hot-list
 
-基于 FastAPI、SQLAlchemy 2.x 异步 ORM、aiosqlite 和 APScheduler 的多平台历史热榜服务，目前包含微博、哔哩哔哩、今日头条、百度热榜和知乎采集器。
+hot-list 是基于 FastAPI、SQLAlchemy 2.x 异步 ORM、APScheduler 和原生 Web 前端构建的多平台热榜采集、小时快照存储、历史查询与 AI 热点分析服务。项目支持 SQLite 和 MySQL，可通过 Python 源码或 Docker Compose 部署。
 
-## 环境要求
+## 主要功能
 
-- Python 3.10.3 或更高版本
-- 默认使用 SQLite
-- 可通过 `DATABASE_URL` 风格配置迁移到 `mysql+asyncmy`
+- 定时采集并持久化多平台热榜，默认按 `Asia/Shanghai` 时区每小时整点执行。
+- 按日期、实际存在的小时和平台查询历史快照。
+- 提供首页筛选、分页展示、状态信息和热榜条目查看。
+- 提供独立的 AI 分析页面，可选择历史快照和一个或多个平台，将数据发送到用户自行配置的兼容接口，分析跨平台热度、共振话题和趋势信号。
+- AI 接口地址、模型配置和 API Key 仅保存在浏览器本地，不写入服务端数据库。使用者仍应只连接自己信任且有权使用的接口。
+- 提供只读历史 API、健康检查、图片代理和命令行采集、写入与查询入口。
+- 支持 SQLite 单实例轻量部署，以及使用 `mysql+asyncmy` 的 MySQL 8 部署。
+- 支持 Docker Compose、Linux、Windows、反向代理与 HTTPS 部署方式。
 
-## 安装
+## 支持的平台
+
+当前代码配置和适配器覆盖微博、哔哩哔哩、今日头条、百度热榜、知乎和抖音。小红书与虎扑仍属于受限适配器，在取得经过授权且可复现的官方请求链之前，不提供端点、签名、令牌或响应字段配置。平台实际可用性可能受登录状态、Cookie、地区限制、频率控制、风控策略和上游接口变化影响。
+
+## 使用场景
+
+- 聚合查看多个内容平台的当前热点。
+- 保存小时级快照并回看指定日期和时段的热榜。
+- 对比同一话题在不同平台的传播与热度共振。
+- 使用自定义 AI 接口生成热点摘要、趋势信号和跨平台分析。
+- 为研究、内容选题、舆情观察和内部数据看板提供基础数据。使用时应遵守目标平台条款、适用法律和授权范围。
+
+## 快速开始
+
+### Docker Compose 部署（推荐）
+
+最快上手方式，一条命令启动完整服务：
 
 ```bash
+# 1. 复制环境变量配置
+cp .env.example .env
+
+# 2. 如需自定义 Cookie，编辑 .env 文件
+#    不要将 .env 提交到版本库
+
+# 3. 验证配置并启动
+docker compose config
+docker compose up --build -d
+
+# 4. 查看运行状态
+docker compose ps
+docker compose logs -f app
+```
+
+服务启动后访问：
+
+| 地址 | 说明 |
+|------|------|
+| `http://localhost:8765/` | 热榜主页 |
+| `http://localhost:8765/ai-analysis` | AI 分析页面 |
+| `http://localhost:8765/health` | 健康检查 |
+| `http://localhost:8765/docs` | OpenAPI 接口文档 |
+
+停止并清理：
+
+```bash
+# 停止容器（保留数据卷）
+docker compose down
+
+# 停止并删除数据卷（⚠️ 会清除所有历史数据）
+docker compose down -v
+```
+
+### Python 源码部署
+
+适合需要自定义修改或不想使用 Docker 的场景：
+
+```bash
+# 1. 获取源码
+git clone <仓库地址>
+cd hot_list
+
+# 2. 创建并激活虚拟环境
+python -m venv .venv
+source .venv/bin/activate   # Linux/macOS
+# Windows PowerShell:
+# .\.venv\Scripts\Activate.ps1
+# Windows CMD:
+# .\.venv\Scripts\activate.bat
+
+# 3. 安装项目
 python -m pip install -e ".[dev]"
-```
 
-## 启动服务
+# 4. 配置环境变量
+cp .env.example .env
+# 注意：源码部署默认数据库路径应改为相对路径
+# HOT_LIST_DATABASE_URL=sqlite+aiosqlite:///./data/hot_list.db
+mkdir -p data
 
-生产模式默认不启用自动重载：
-
-```bash
+# 5. 启动服务
 python main.py serve
-# 安装项目后也可使用：hot-list serve
+# 或安装后使用全局命令：
+# hot-list serve
 ```
 
-开发调试模式会设置 `HOT_LIST_DEBUG=true`，并统一使用 Uvicorn 的 reload 和 debug 日志参数：
+开发调试模式（自动重载 + debug 日志）：
 
 ```bash
 python main.py dev
-# debug 是 dev 的别名：python main.py debug
-# 等效底层命令：
+# 等价命令：
 # python -m uvicorn web.app:app --host 127.0.0.1 --port 8765 --reload --log-level debug
 ```
 
-也可以在 `.env` 中设置 `HOT_LIST_DEBUG=true`，让 FastAPI 启用 debug 状态。生产环境应保持 `HOT_LIST_DEBUG=false`，且不应强制启用 reload。
+停止服务按 `Ctrl+C`，退出虚拟环境执行 `deactivate`。
 
-服务启动时会初始化数据库；启用启动补采后，会检查当前小时缺失的平台并立即采集。调度器默认在 Asia/Shanghai 时区每小时整点采集并保存，关闭服务时会停止调度器、关闭 HTTP 客户端并释放数据库连接。
+### 启动与关闭速查
 
-## 数据库
+| 部署方式 | 启动 | 停止 | 查看日志 |
+|---------|------|------|---------|
+| Docker | `docker compose up --build -d` | `docker compose down` | `docker compose logs -f app` |
+| Python 源码 | `python main.py serve` | `Ctrl+C` | 终端直接输出 |
+| Python 开发模式 | `python main.py dev` | `Ctrl+C` | 终端直接输出 |
 
-默认数据库地址：
+## 项目截图
 
-```text
-sqlite+aiosqlite:///./data/hot_list.db
-```
+### 热榜主页
 
-主要表：
+![热榜主页](images/主页.png)
 
-- `hot_snapshots`：平台小时快照，包含平台、快照小时、采集时间、状态、错误及条目数
-- `hot_items`：快照条目，包含原始排名、保存顺序、标题、链接、图片、热度、分类、描述及元数据
+首页展示各平台最新热榜快照，支持按日期、小时、平台筛选，显示状态徽章和条目数量。
 
-`hot_snapshots` 对 `(platform, snapshot_hour)` 设置唯一约束，保证同一平台同一小时幂等保存。Repository 使用 SQLAlchemy ORM 查询，不依赖 SQLite 专属业务 SQL。
+### 分页浏览
 
-未来迁移 MySQL 时可配置：
+![分页浏览](images/分页.png)
 
-```text
-HOT_LIST_DATABASE_URL=mysql+asyncmy://user:password@127.0.0.1:3306/hot_list?charset=utf8mb4
-```
+分页控件支持浏览历史快照，每条热榜条目展示标题、排名、链接和热度信息。
+
+### AI 热榜分析
+
+![AI 热榜分析](images/ai分析.png)
+
+AI 分析页面可选择历史快照日期，勾选一个或多个平台，配置 AI 接口后发起跨平台热度分析。
+
+### AI 分析结果
+
+![AI 分析结果](images/分析结果.png)
+
+AI 返回的跨平台趋势摘要、共振话题和热度信号，帮助用户快速捕捉热点脉络。
 
 ## 配置
 
@@ -63,13 +148,191 @@ HOT_LIST_DATABASE_URL=mysql+asyncmy://user:password@127.0.0.1:3306/hot_list?char
 
 核心配置：
 
-- `HOT_LIST_DATABASE_URL`
-- `HOT_LIST_APP_TIMEZONE=Asia/Shanghai`
-- `HOT_LIST_SCHEDULER_ENABLED=true`
-- `HOT_LIST_COLLECT_ON_STARTUP=true`
-- `HOT_LIST_COLLECT_CRON_MINUTE=0`
+- `HOT_LIST_DATABASE_URL` — 数据库连接地址
+- `HOT_LIST_APP_TIMEZONE=Asia/Shanghai` — 时区设置
+- `HOT_LIST_SCHEDULER_ENABLED=true` — 是否启用定时采集调度器
+- `HOT_LIST_COLLECT_ON_STARTUP=true` — 启动时补采当前小时缺失数据
+- `HOT_LIST_COLLECT_CRON_MINUTE=0` — 每小时第几分钟执行采集
+- `HOT_LIST_WEIBO_COOKIE` / `HOT_LIST_BILIBILI_COOKIE` 等 — 各平台 Cookie
 
 Cookie 等敏感信息不得提交到版本库、测试 fixtures 或日志。
+
+## 部署方式详解
+
+### Docker Compose 部署
+
+#### SQLite 默认部署
+
+复制示例环境变量文件，并按需填写 Cookie 等敏感配置。不要将 `.env` 提交到版本库：
+
+```bash
+cp .env.example .env
+docker compose config
+docker compose up --build -d
+```
+
+服务通过 `http://localhost:8765` 提供访问，健康检查端点为 `http://localhost:8765/health`。容器内 Uvicorn 绑定到 `0.0.0.0:8765`，固定使用一个 worker。
+
+SQLite 数据库存放在容器的 `/app/data/hot_list.db`，并通过 `hot_list_data` 命名卷持久化。停止并重新创建容器不会删除数据；只有显式执行 `docker compose down -v` 才会删除该命名卷及其中的数据。
+
+常用管理命令：
+
+```bash
+docker compose ps                # 查看容器状态
+docker compose logs -f app       # 跟踪应用日志
+docker compose exec app python main.py latest   # 查询最新快照
+docker compose exec app python main.py collect  # 手动采集
+docker compose restart app       # 重启服务
+docker compose down              # 停止（保留数据卷）
+docker compose down -v           # 停止并删除数据卷（⚠️ 数据丢失）
+```
+
+#### APScheduler 与副本数量
+
+应用进程内运行 APScheduler，并可在启动时执行缺失数据补采。启用 `HOT_LIST_SCHEDULER_ENABLED=true` 或 `HOT_LIST_COLLECT_ON_STARTUP=true` 时，**必须保持应用为单副本**，并维持 Uvicorn `--workers 1`。
+
+```bash
+# ❌ 错误：多副本会导致重复采集
+docker compose up --scale app=2
+
+# ✅ 正确：保持单副本运行
+docker compose up --build -d
+```
+
+如需横向扩展 Web 服务，应先将调度任务拆分为独立的单实例服务，并在 Web 副本中设置：
+
+```dotenv
+HOT_LIST_SCHEDULER_ENABLED=false
+HOT_LIST_COLLECT_ON_STARTUP=false
+```
+
+#### 可选 MySQL 部署
+
+MySQL 配置位于 `docker-compose.mysql.yml`。先在本地 `.env` 中设置真实凭据：
+
+```dotenv
+MYSQL_DATABASE=hot_list
+MYSQL_USER=hot_list
+MYSQL_PASSWORD=replace-with-a-strong-password
+MYSQL_ROOT_PASSWORD=replace-with-a-different-strong-password
+HOT_LIST_DATABASE_URL=mysql+asyncmy://hot_list:replace-with-a-strong-password@mysql:3306/hot_list?charset=utf8mb4
+```
+
+启动组合配置：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.mysql.yml config
+docker compose -f docker-compose.yml -f docker-compose.mysql.yml up --build -d
+```
+
+MySQL 数据通过 `hot_list_mysql_data` 命名卷持久化。应用会等待 MySQL 健康检查通过后再启动。详细步骤参见 [docs/mysql-deployment.md](docs/mysql-deployment.md)。
+
+#### Docker 验证
+
+```bash
+docker compose config          # 验证配置语法
+docker compose build           # 构建镜像
+docker compose up -d           # 后台启动
+docker compose ps              # 检查运行状态
+curl --fail http://localhost:8765/health   # 健康检查
+docker compose exec app python main.py latest   # 验证数据
+```
+
+### Python 源码部署
+
+#### 环境要求
+
+- Python 3.10 或更高版本
+- pip
+- 默认使用 SQLite，无需单独安装数据库服务
+
+#### 创建虚拟环境
+
+Linux 或 macOS：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+Windows PowerShell：
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+Windows 命令提示符：
+
+```bat
+py -3.12 -m venv .venv
+.venv\Scripts\activate.bat
+```
+
+#### 安装项目
+
+```bash
+# 生产部署（仅运行依赖）
+python -m pip install .
+
+# 开发/调试部署（含测试工具）
+python -m pip install -e ".[dev]"
+```
+
+#### 环境变量配置
+
+```bash
+cp .env.example .env
+# 修改数据库路径为本地相对路径
+# HOT_LIST_DATABASE_URL=sqlite+aiosqlite:///./data/hot_list.db
+mkdir -p data
+```
+
+#### 启动与停止
+
+```bash
+# 生产模式
+python main.py serve
+# 或：hot-list serve
+
+# 开发调试模式（自动重载）
+python main.py dev
+
+# 停止：按 Ctrl+C
+# 退出虚拟环境：deactivate
+```
+
+#### 常用 CLI 命令
+
+```bash
+# 实时采集（不写入数据库）
+python main.py live
+python main.py live weibo
+
+# 采集并保存当前小时数据
+python main.py collect
+python main.py collect weibo
+
+# 查询最新快照
+python main.py latest
+python main.py latest --platform weibo
+
+# 查询历史数据
+python main.py history 2026-08-21
+python main.py history 2026-08-21 --hour 12 --platform weibo
+```
+
+### Linux systemd 部署
+
+将 hot-list 注册为 systemd 服务，实现开机自启和进程守护。详细步骤参见 [docs/linux-deployment.md](docs/linux-deployment.md)。
+
+### Windows 部署
+
+Windows 环境下可使用批处理脚本或 `start_debug.bat` 启动服务。详细步骤参见 [docs/windows-deployment.md](docs/windows-deployment.md)。
+
+### 反向代理与 HTTPS
+
+公网部署前需配置反向代理和 HTTPS 证书。支持 Nginx、Caddy 等常见代理方案。详细步骤参见 [docs/reverse-proxy.md](docs/reverse-proxy.md)。
 
 ## API
 
@@ -135,82 +398,15 @@ python -m mypy database services spider tools web main.py
 python -m pytest -q
 ```
 
-真实平台采集仍可能受 Cookie、登录状态、风控、地区限制和上游接口变化影响。测试 fixtures 应来自已授权且已脱敏的响应。
+## 文档导航
 
-## Docker 部署
-
-### SQLite 默认部署
-
-复制示例环境变量文件，并按需填写 Cookie 等敏感配置。不要将 `.env` 提交到版本库：
-
-```bash
-cp .env.example .env
-docker compose config
-docker compose up --build -d
-```
-
-服务通过 `http://localhost:8765` 提供访问，健康检查端点为 `http://localhost:8765/health`。容器内 Uvicorn 绑定到 `0.0.0.0:8765`，固定使用一个 worker。
-
-SQLite 数据库存放在容器的 `/app/data/hot_list.db`，并通过 `hot_list_data` 命名卷持久化。停止并重新创建容器不会删除数据；只有显式执行 `docker compose down -v` 才会删除该命名卷及其中的数据。
-
-常用命令：
-
-```bash
-docker compose ps
-docker compose logs -f app
-docker compose exec app python main.py latest
-docker compose down
-```
-
-### APScheduler 与副本数量
-
-应用进程内运行 APScheduler，并可在启动时执行缺失数据补采。启用 `HOT_LIST_SCHEDULER_ENABLED=true` 或 `HOT_LIST_COLLECT_ON_STARTUP=true` 时，必须保持应用为单副本，并维持 Uvicorn `--workers 1`。不要通过 `docker compose up --scale app=N`、多 worker 或多个相同部署实例横向扩展，否则每个进程都会启动独立调度器，可能造成重复采集和并发写入。
-
-如需横向扩展 Web 服务，应先将调度任务拆分为独立的单实例服务，并在 Web 副本中设置：
-
-```dotenv
-HOT_LIST_SCHEDULER_ENABLED=false
-HOT_LIST_COLLECT_ON_STARTUP=false
-```
-
-### 可选 MySQL 部署
-
-MySQL 配置位于 `docker-compose.mysql.yml`。先在本地 `.env` 中设置真实凭据，不要把密码写入 Compose 文件或提交到版本库：
-
-```dotenv
-MYSQL_DATABASE=hot_list
-MYSQL_USER=hot_list
-MYSQL_PASSWORD=replace-with-a-strong-password
-MYSQL_ROOT_PASSWORD=replace-with-a-different-strong-password
-```
-
-启动并验证组合配置：
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.mysql.yml config
-docker compose -f docker-compose.yml -f docker-compose.mysql.yml up --build -d
-```
-
-MySQL 数据通过 `hot_list_mysql_data` 命名卷持久化。应用会等待 MySQL 健康检查通过后再启动。
-
-### Docker 验证
-
-配置或镜像发生变更后，建议依次运行：
-
-```bash
-docker compose config
-docker compose build
-docker compose up -d
-docker compose ps
-curl --fail http://localhost:8765/health
-```
-
-持久化检查可通过记录数据库文件状态、重新创建应用容器并再次检查来完成：
-
-```bash
-docker compose exec app python -c "from pathlib import Path; p=Path('/app/data/hot_list.db'); print(p.exists(), p.stat().st_size if p.exists() else 0)"
-docker compose up -d --force-recreate app
-docker compose exec app python -c "from pathlib import Path; p=Path('/app/data/hot_list.db'); print(p.exists(), p.stat().st_size if p.exists() else 0)"
-```
-
-不要在持久化验证期间运行 `docker compose down -v`，因为该命令会主动删除数据卷。
+- [docs/README.md](docs/README.md) — 文档中心索引
+- [docs/docker-deployment.md](docs/docker-deployment.md) — Docker 部署详细指南
+- [docs/source-deployment.md](docs/source-deployment.md) — 源码部署详细指南
+- [docs/linux-deployment.md](docs/linux-deployment.md) — Linux systemd 部署
+- [docs/windows-deployment.md](docs/windows-deployment.md) — Windows 部署
+- [docs/mysql-deployment.md](docs/mysql-deployment.md) — MySQL 数据库部署
+- [docs/reverse-proxy.md](docs/reverse-proxy.md) — 反向代理与 HTTPS 配置
+- [docs/maintenance.md](docs/maintenance.md) — 日常运维与数据备份
+- [docs/troubleshooting.md](docs/troubleshooting.md) — 常见问题排查
+- [docs/release-checklist.md](docs/release-checklist.md) — 发布检查清单
