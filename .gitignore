@@ -1,0 +1,104 @@
+# Environment variables and local secrets
+.env
+.env.*
+!.env.example
+*.env
+*.env.*
+!*.env.example
+
+# Credentials, certificates, and private keys
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.jks
+*.keystore
+
+# Tests and test artifacts
+tests/
+test/
+**/tests/
+**/test/
+test_*
+*_test.*
+*.test.*
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Python bytecode, caches, and tooling state
+__pycache__/
+*.py[cod]
+*$py.class
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.pyre/
+.hypothesis/
+.tox/
+.nox/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Local databases and generated data
+data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+
+# Logs, process files, and runtime output
+logs/
+*.log
+*.pid
+*.pid.lock
+*.out
+*.err
+
+# Build and distribution output
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# IDE and editor configuration
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+
+# OS and user-specific files
+.DS_Store
+Thumbs.db
+desktop.ini
+NUL
+
+# Local agent and automation state
+.zcode/
+
+# Generated validation artifacts and local analysis records
+validation-screenshots/
+reverse-records/
+
+# Package-manager and frontend caches
+node_modules/
+.npm/
+.yarn/
+.pnpm-store/
+.cache/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak

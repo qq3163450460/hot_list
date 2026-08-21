@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="按日期、小时和平台浏览数据库中的历史热榜快照">
+  <title>历史热搜榜单</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body data-page="hot-list-home">
+  <a class="skip-link" href="#hot-list">跳到热搜内容</a>
+  <header class="hero">
+    <div class="hero__content">
+      <div>
+        <p class="eyebrow">HOT LIST HISTORY</p>
+        <h1>全网热搜</h1>
+      </div>
+      <div class="hero__actions" aria-label="页面操作">
+        <a class="ai-analysis-link" href="/ai-analysis">AI 分析</a>
+        <button id="latest-button" class="refresh-button" type="button">
+          <span aria-hidden="true">↻</span>
+          <span>最新数据</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="page-shell">
+    <section class="history-filters" aria-label="历史热榜筛选">
+      <label class="filter-field" for="date-filter">
+        <span>日期</span>
+        <select id="date-filter" name="date" aria-label="选择热榜日期"></select>
+      </label>
+      <label class="filter-field" for="hour-filter">
+        <span>小时</span>
+        <select id="hour-filter" name="hour" aria-label="选择热榜小时"></select>
+      </label>
+      <label class="filter-field" for="platform-filter">
+        <span>平台</span>
+        <select id="platform-filter" name="platform" aria-label="选择热榜平台">
+          <option value="all">全部平台</option>
+        </select>
+      </label>
+    </section>
+
+    <section class="toolbar" aria-label="热榜状态">
+      <div id="platform-filters" class="platform-filters" role="group" aria-label="快速选择平台">
+        <button class="filter-button is-active" type="button" data-platform="all" aria-pressed="true">全部</button>
+      </div>
+      <div class="summary" aria-live="polite">
+        <span id="item-count">0 条热搜</span>
+        <span class="summary__separator" aria-hidden="true">•</span>
+        <span id="snapshot-at">暂无快照</span>
+        <span class="summary__separator" aria-hidden="true">•</span>
+        <span id="collected-at">暂无采集时间</span>
+      </div>
+    </section>
+
+    <div id="global-error" class="notice notice--error" role="alert" hidden></div>
+    <div id="loading-state" class="notice notice--loading" role="status">
+      <span class="spinner" aria-hidden="true"></span>
+      <span>正在读取历史热榜…</span>
+    </div>
+    <div id="empty-state" class="notice notice--empty" hidden>
+      <strong>所选时间没有热榜数据</strong>
+      <span>请选择数据库中已有的日期、小时或其他平台。</span>
+    </div>
+    <section id="hot-list" class="platform-grid" aria-label="历史热搜榜单" aria-busy="true"></section>
+  </main>
+
+  <noscript>
+    <div class="noscript-notice">此页面需要启用 JavaScript 才能加载历史热榜。</div>
+  </noscript>
+</body>
+</html>

@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="选择历史热榜快照并使用 OpenAI 兼容接口进行 AI 分析">
+  <title>AI 热榜分析</title>
+  <link rel="stylesheet" href="/static/ai-analysis.css">
+  <script src="/static/ai-analysis.js" defer></script>
+</head>
+<body data-page="ai-analysis">
+  <a class="skip-link" href="#ai-analysis-form">跳到 AI 分析表单</a>
+
+  <header class="hero">
+    <div class="hero__content">
+      <div>
+        <p class="eyebrow">HOT LIST AI ANALYSIS</p>
+        <h1>AI 热榜分析</h1>
+        <p class="hero__description">选择具体小时可分析单个精确快照；选择“全天”则汇总所选日期全部可用小时的热榜快照，并在确定性去重聚合后提交 AI 分析。</p>
+      </div>
+      <nav class="page-navigation" aria-label="页面导航">
+        <a class="navigation-link" href="/">返回热榜首页</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="page-shell">
+    <section class="snapshot-panel" aria-labelledby="snapshot-heading">
+      <div class="section-heading">
+        <div>
+          <p class="section-kicker">SNAPSHOT</p>
+          <h2 id="snapshot-heading">选择分析快照</h2>
+        </div>
+        <p id="snapshot-summary" class="snapshot-summary" aria-live="polite">正在读取可用快照…</p>
+      </div>
+
+      <div class="snapshot-filters" aria-label="快照筛选">
+        <label class="filter-field" for="date-filter">
+          <span>日期</span>
+          <select id="date-filter" name="date" aria-label="选择分析日期"></select>
+        </label>
+        <label class="filter-field" for="hour-filter">
+          <span>小时</span>
+          <select id="hour-filter" name="hour" aria-label="选择分析小时"></select>
+        </label>
+      </div>
+
+      <div id="snapshot-loading" class="notice notice--loading" role="status" aria-live="polite" hidden>
+        <span class="spinner" aria-hidden="true"></span>
+        <span>正在加载全平台快照…</span>
+      </div>
+      <div id="snapshot-error" class="notice notice--error" role="alert" hidden></div>
+    </section>
+
+    <section class="ai-analysis" aria-labelledby="analysis-heading">
+      <div class="section-heading">
+        <div>
+          <p class="section-kicker">ANALYSIS</p>
+          <h2 id="analysis-heading">配置并开始分析</h2>
+        </div>
+      </div>
+
+      <form id="ai-analysis-form">
+        <fieldset class="platform-selection">
+          <legend>AI 分析平台</legend>
+          <p class="field-help">可选择单个平台、多个平台，或直接选择全部有快照的平台。</p>
+          <label class="platform-option platform-option--all" for="ai-platform-all">
+            <input id="ai-platform-all" name="ai-platform-all" type="checkbox">
+            <span>全部平台</span>
+          </label>
+          <div id="ai-platform-options" class="platform-options" aria-live="polite"></div>
+        </fieldset>
+
+        <label class="ai-field" for="ai-focus">
+          <span>重点分析方向</span>
+          <textarea id="ai-focus" name="ai-focus" rows="4" maxlength="1000" placeholder="例如：重点关注科技、消费和公共事件的跨平台传播差异；留空则使用系统默认分析方向和默认提示词。" aria-describedby="ai-focus-help"></textarea>
+          <small id="ai-focus-help" class="field-help">此内容仅用于本次分析，不会保存到 localStorage。</small>
+        </label>
+
+        <details class="ai-settings">
+          <summary>OpenAI 兼容 API 设置</summary>
+          <p id="ai-settings-help" class="field-help">API 地址、API Key 和模型名仅保存在当前浏览器的 localStorage 中。</p>
+          <div class="ai-settings__grid" aria-describedby="ai-settings-help">
+            <label class="ai-field" for="ai-api-url">
+              <span>API 地址</span>
+              <input id="ai-api-url" name="ai-api-url" type="url" inputmode="url" autocomplete="url" placeholder="https://api.openai.com/v1" required>
+            </label>
+            <label class="ai-field" for="ai-model">
+              <span>模型名</span>
+              <input id="ai-model" name="ai-model" type="text" autocomplete="off" placeholder="例如：gpt-4.1-mini" required>
+            </label>
+            <label class="ai-field ai-field--wide" for="ai-api-key">
+              <span>API Key</span>
+              <input id="ai-api-key" name="ai-api-key" type="password" autocomplete="off" spellcheck="false" placeholder="请输入 API Key" required>
+            </label>
+          </div>
+        </details>
+
+        <div class="ai-analysis__actions">
+          <button id="ai-analyze-button" class="ai-button ai-button--primary" type="submit">开始分析</button>
+          <button id="ai-cancel-button" class="ai-button ai-button--secondary" type="button" disabled>取消分析</button>
+        </div>
+      </form>
+
+      <div id="ai-loading" class="notice notice--loading" role="status" aria-live="polite" hidden>
+        <span class="spinner" aria-hidden="true"></span>
+        <span>正在分析所选热榜快照…</span>
+      </div>
+      <div id="ai-error" class="notice notice--error" role="alert" hidden></div>
+      <div id="ai-result-stale" class="notice notice--stale" role="status" aria-live="polite" hidden>筛选条件、平台选择或重点分析方向已变化，当前结果可能已过期，请重新分析。</div>
+      <div id="ai-result" class="ai-result" aria-live="polite" aria-busy="false" hidden></div>
+    </section>
+
+    <nav class="footer-navigation" aria-label="返回导航">
+      <a class="navigation-link" href="/">返回热榜首页</a>
+    </nav>
+  </main>
+
+  <noscript>
+    <div class="noscript-notice">此页面需要启用 JavaScript 才能加载快照并执行 AI 分析。</div>
+  </noscript>
+</body>
+</html>
