@@ -235,6 +235,10 @@ function renderItem(item, platform) {
   const suppressImages = isBaidu || platform === "douyin" || platform === "zhihu";
 
   appendText(row, "span", "hot-item__rank", String(item?.rank ?? "-"));
+  const rankNumber = Number(item?.rank);
+  if (Number.isInteger(rankNumber) && rankNumber >= 1 && rankNumber <= 3) {
+    row.classList.add(`hot-item--top-${rankNumber}`);
+  }
 
   const content = document.createElement("div");
   content.className = "hot-item__content";
