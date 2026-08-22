@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from database.models import HotItem, HotSnapshot
 from spider.models import HotItem as DomainHotItem
 from spider.models import PlatformResult
+from tools.cache import SingleFlightCache
 from tools.timezone import get_timezone, local_day_bounds
 
 
@@ -21,9 +22,11 @@ class HotRepository:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         timezone_name: str,
+        cache_ttl_seconds: float = 60.0,
     ) -> None:
         self.session_factory = session_factory
         self.timezone_name = timezone_name
+        self._cache = SingleFlightCache(cache_ttl_seconds)
 
     async def save_result(
         self,
@@ -59,6 +62,7 @@ class HotRepository:
                     raise
                 return existing, False
             await session.refresh(snapshot)
+            self._cache.invalidate()
             return snapshot, True
 
     async def replace_result(
@@ -94,6 +98,7 @@ class HotRepository:
             ]
             await session.commit()
             await session.refresh(snapshot)
+            self._cache.invalidate()
             return snapshot
 
     async def has_snapshot(self, platform: str, snapshot_hour: datetime) -> bool:
@@ -109,55 +114,70 @@ class HotRepository:
     async def latest(self, platform: str | None = None) -> list[dict[str, Any]]:
         """Return each platform's latest available snapshot."""
 
-        async with self.session_factory() as session:
-            platforms_statement = select(HotSnapshot.platform).distinct()
-            if platform is not None:
-                platforms_statement = platforms_statement.where(HotSnapshot.platform == platform)
-            platforms = list((await session.scalars(platforms_statement)).all())
-            snapshots: list[HotSnapshot] = []
-            for platform_name in platforms:
-                statement = (
-                    select(HotSnapshot)
-                    .where(HotSnapshot.platform == platform_name)
-                    .options(selectinload(HotSnapshot.items))
-                    .order_by(HotSnapshot.snapshot_hour.desc(), HotSnapshot.collected_at.desc())
-                    .limit(1)
-                )
-                snapshot = await session.scalar(statement)
-                if snapshot is not None:
-                    snapshots.append(snapshot)
-            return [self._serialize_snapshot(snapshot) for snapshot in snapshots]
+        async def load() -> list[dict[str, Any]]:
+            async with self.session_factory() as session:
+                platforms_statement = select(HotSnapshot.platform).distinct()
+                if platform is not None:
+                    platforms_statement = platforms_statement.where(
+                        HotSnapshot.platform == platform
+                    )
+                platforms = list((await session.scalars(platforms_statement)).all())
+                snapshots: list[HotSnapshot] = []
+                for platform_name in platforms:
+                    statement = (
+                        select(HotSnapshot)
+                        .where(HotSnapshot.platform == platform_name)
+                        .options(selectinload(HotSnapshot.items))
+                        .order_by(
+                            HotSnapshot.snapshot_hour.desc(),
+                            HotSnapshot.collected_at.desc(),
+                        )
+                        .limit(1)
+                    )
+                    snapshot = await session.scalar(statement)
+                    if snapshot is not None:
+                        snapshots.append(snapshot)
+                return [self._serialize_snapshot(snapshot) for snapshot in snapshots]
+
+        return await self._cache.get_or_load(f"latest:{platform or ''}", load)
 
     async def dates(self) -> list[str]:
         """Return local calendar dates that contain persisted snapshots."""
 
-        async with self.session_factory() as session:
-            statement = select(HotSnapshot.snapshot_hour).order_by(
-                HotSnapshot.snapshot_hour.desc()
+        async def load() -> list[str]:
+            async with self.session_factory() as session:
+                statement = select(HotSnapshot.snapshot_hour).distinct().order_by(
+                    HotSnapshot.snapshot_hour.desc()
+                )
+                values = (await session.scalars(statement)).all()
+            zone = get_timezone(self.timezone_name)
+            return sorted(
+                {self._aware(value).astimezone(zone).date().isoformat() for value in values},
+                reverse=True,
             )
-            values = (await session.scalars(statement)).all()
-        zone = get_timezone(self.timezone_name)
-        return sorted(
-            {self._aware(value).astimezone(zone).date().isoformat() for value in values},
-            reverse=True,
-        )
+
+        return await self._cache.get_or_load("dates", load)
 
     async def hours(self, day: date) -> list[str]:
         """Return only local hours that have snapshots on the requested date."""
 
         start, end = local_day_bounds(day, self.timezone_name)
-        async with self.session_factory() as session:
-            statement = (
-                select(HotSnapshot.snapshot_hour)
-                .where(HotSnapshot.snapshot_hour >= start, HotSnapshot.snapshot_hour <= end)
-                .order_by(HotSnapshot.snapshot_hour.desc())
+
+        async def load() -> list[str]:
+            async with self.session_factory() as session:
+                statement = (
+                    select(HotSnapshot.snapshot_hour)
+                    .where(HotSnapshot.snapshot_hour >= start, HotSnapshot.snapshot_hour <= end)
+                    .order_by(HotSnapshot.snapshot_hour.desc())
+                )
+                values = (await session.scalars(statement)).all()
+            zone = get_timezone(self.timezone_name)
+            return sorted(
+                {self._aware(value).astimezone(zone).strftime("%H") for value in values},
+                reverse=True,
             )
-            values = (await session.scalars(statement)).all()
-        zone = get_timezone(self.timezone_name)
-        return sorted(
-            {self._aware(value).astimezone(zone).strftime("%H") for value in values},
-            reverse=True,
-        )
+
+        return await self._cache.get_or_load(f"hours:{day.isoformat()}", load)
 
     async def history(
         self,
@@ -176,37 +196,45 @@ class HotRepository:
         """
 
         start, end = local_day_bounds(day, self.timezone_name)
-        async with self.session_factory() as session:
-            statement = (
-                select(HotSnapshot)
-                .where(HotSnapshot.snapshot_hour >= start, HotSnapshot.snapshot_hour <= end)
-                .options(selectinload(HotSnapshot.items))
-                .order_by(HotSnapshot.snapshot_hour.desc(), HotSnapshot.platform.asc())
-            )
-            if platform is not None:
-                statement = statement.where(HotSnapshot.platform == platform)
-            snapshots = list((await session.scalars(statement)).unique().all())
 
-        zone = get_timezone(self.timezone_name)
-        if scope == "day":
+        async def load() -> list[dict[str, Any]]:
+            async with self.session_factory() as session:
+                statement = (
+                    select(HotSnapshot)
+                    .where(HotSnapshot.snapshot_hour >= start, HotSnapshot.snapshot_hour <= end)
+                    .options(selectinload(HotSnapshot.items))
+                    .order_by(
+                        HotSnapshot.snapshot_hour.desc(),
+                        HotSnapshot.platform.asc(),
+                    )
+                )
+                if platform is not None:
+                    statement = statement.where(HotSnapshot.platform == platform)
+                snapshots = list((await session.scalars(statement)).unique().all())
+
+            zone = get_timezone(self.timezone_name)
+            if scope == "day":
+                return [self._serialize_snapshot(snapshot) for snapshot in snapshots]
+            if hour is not None:
+                snapshots = [
+                    snapshot
+                    for snapshot in snapshots
+                    if self._aware(snapshot.snapshot_hour).astimezone(zone).hour == hour
+                ]
+            elif snapshots:
+                latest_hour = max(
+                    self._aware(snapshot.snapshot_hour).astimezone(zone)
+                    for snapshot in snapshots
+                )
+                snapshots = [
+                    snapshot
+                    for snapshot in snapshots
+                    if self._aware(snapshot.snapshot_hour).astimezone(zone) == latest_hour
+                ]
             return [self._serialize_snapshot(snapshot) for snapshot in snapshots]
-        if hour is not None:
-            snapshots = [
-                snapshot
-                for snapshot in snapshots
-                if self._aware(snapshot.snapshot_hour).astimezone(zone).hour == hour
-            ]
-        elif snapshots:
-            latest_hour = max(
-                self._aware(snapshot.snapshot_hour).astimezone(zone)
-                for snapshot in snapshots
-            )
-            snapshots = [
-                snapshot
-                for snapshot in snapshots
-                if self._aware(snapshot.snapshot_hour).astimezone(zone) == latest_hour
-            ]
-        return [self._serialize_snapshot(snapshot) for snapshot in snapshots]
+
+        cache_key = f"history:{day.isoformat()}:{hour}:{platform or ''}:{scope}"
+        return await self._cache.get_or_load(cache_key, load)
 
     async def delete_all(self) -> None:
         """Delete persisted snapshots, primarily for isolated tests."""
@@ -214,6 +242,7 @@ class HotRepository:
         async with self.session_factory() as session:
             await session.execute(delete(HotSnapshot))
             await session.commit()
+        self._cache.invalidate()
 
     async def _find_snapshot(
         self,

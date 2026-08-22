@@ -27,6 +27,7 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite+aiosqlite:///./data/hot_list.db"
     app_timezone: str = "Asia/Shanghai"
+    read_cache_ttl_seconds: float = Field(default=60.0, gt=0)
     scheduler_enabled: bool = True
     collect_on_startup: bool = True
     collect_cron_minute: int = Field(default=0, ge=0, le=59)

@@ -69,7 +69,11 @@ class WeiboSpider(BaseSpider):
             rank = len(items) + 1
             hot_value = raw.get("num")
             category_value = raw.get("category") or raw.get("label_name")
-            category = category_value if isinstance(category_value, str) else None
+            category = (
+                category_value.strip()
+                if isinstance(category_value, str) and category_value.strip()
+                else None
+            )
 
             items.append(
                 HotItem(

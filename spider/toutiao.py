@@ -10,6 +10,30 @@ from spider.models import HotItem
 from tools.exceptions import SpiderResponseError
 from tools.http import HttpClient
 
+# Toutiao returns machine-readable label codes in `Label`. They are translated
+# to Chinese badge text here so platform-specific knowledge stays centralized,
+# matching the approach used by the Bilibili and Zhihu adapters.
+TOUTIAO_LABEL_TEXT_BY_CODE: dict[str, str] = {
+    "depth": "深度",
+    "hot": "热",
+    "interpretation": "解读",
+    "new": "新",
+    "onsite": "现场",
+    "recentprogress": "进展",
+    "refuterumors": "辟谣",
+}
+
+
+def resolve_label_text(label_value: Any) -> str | None:
+    """Translate a Toutiao label code to display text, passing through unknowns."""
+
+    if not isinstance(label_value, str):
+        return None
+    text = label_value.strip()
+    if not text:
+        return None
+    return TOUTIAO_LABEL_TEXT_BY_CODE.get(text.lower(), text)
+
 
 class ToutiaoSpider(BaseSpider):
     """Collect and normalize Toutiao hot-board entries."""
@@ -60,7 +84,7 @@ class ToutiaoSpider(BaseSpider):
                 continue
 
             hot_value = raw.get("HotValue")
-            category_value = raw.get("Label")
+            category = resolve_label_text(raw.get("Label"))
             url = self._optional_http_url(raw.get("Url"))
             image_url = self._optional_http_url(
                 raw.get("Image") or raw.get("ImageUrl")
@@ -78,12 +102,7 @@ class ToutiaoSpider(BaseSpider):
                         if isinstance(hot_value, (int, float, str))
                         else None
                     ),
-                    category=(
-                        category_value.strip()
-                        if isinstance(category_value, str)
-                        and category_value.strip()
-                        else None
-                    ),
+                    category=category,
                     metadata={
                         "cluster_id": raw.get("ClusterId"),
                         "schema": raw.get("Schema"),

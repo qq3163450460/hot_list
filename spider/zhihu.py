@@ -24,6 +24,24 @@ ZHIHU_LABEL_TEXT_BY_IDENTIFIER: dict[str, str] = {
     "video.png": "视频",
 }
 
+# The `label` string field carries English codes (e.g. "hot"/"new"). Translate
+# them here so stored categories match the Chinese badge text used elsewhere.
+ZHIHU_LABEL_TEXT_BY_CODE: dict[str, str] = {
+    "hot": "热",
+    "new": "新",
+}
+
+
+def resolve_label_text(label_value: Any) -> str | None:
+    """Translate a Zhihu label code to display text, passing through unknowns."""
+
+    if not isinstance(label_value, str):
+        return None
+    text = label_value.strip()
+    if not text:
+        return None
+    return ZHIHU_LABEL_TEXT_BY_CODE.get(text.lower(), text)
+
 
 def resolve_hot_label(image_url: str) -> str | None:
     """Resolve a Zhihu label image URL to maintainable Chinese label text."""
@@ -117,11 +135,7 @@ class ZhihuSpider(BaseSpider):
                 hot_value = None
 
             label_value = raw.get("label")
-            category = (
-                label_value.strip()
-                if isinstance(label_value, str) and label_value.strip()
-                else None
-            )
+            category = resolve_label_text(label_value)
 
             index_value = raw.get("index")
             rank = index_value + 1 if isinstance(index_value, int) else len(items) + 1

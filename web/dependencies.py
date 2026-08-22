@@ -85,7 +85,12 @@ def get_hot_repository() -> HotRepository:
     database = get_database()
     if database.session_factory is None:
         raise RuntimeError("Database has not been initialized")
-    return HotRepository(database.session_factory, get_settings().app_timezone)
+    settings = get_settings()
+    return HotRepository(
+        database.session_factory,
+        settings.app_timezone,
+        cache_ttl_seconds=settings.read_cache_ttl_seconds,
+    )
 
 
 @lru_cache(maxsize=1)

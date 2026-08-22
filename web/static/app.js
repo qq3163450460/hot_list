@@ -74,6 +74,21 @@ function formatTime(value) {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-CN", { hour12: false });
 }
 
+function formatUnitValue(value) {
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+function formatHotValue(value) {
+  const text = nonEmptyText(value);
+  if (!text) return "";
+  const number = Number(text.replace(/[,，\s]/g, ""));
+  if (!Number.isFinite(number) || number < 0) return text;
+  if (number >= 1e8) return `${formatUnitValue(number / 1e8)}亿`;
+  if (number >= 1e4) return `${formatUnitValue(number / 1e4)}万`;
+  return String(Math.round(number));
+}
+
 function appendText(parent, tagName, className, value) {
   const node = document.createElement(tagName);
   if (className) node.className = className;
@@ -94,6 +109,23 @@ function meaningfulTag(value) {
   const text = nonEmptyText(value);
   if (!text || /^\d+(?:\.\d+)?$/.test(text) || MEANINGLESS_TAGS.has(text.toLowerCase())) return "";
   return text;
+}
+
+// Snapshots collected before the spiders translated platform label codes still
+// store English text (e.g. Toutiao/Zhihu "hot"/"new"). Normalize them at
+// render time so legacy rows match the Chinese badges of fresh data.
+const TAG_TEXT_BY_CODE = {
+  depth: "深度",
+  hot: "热",
+  interpretation: "解读",
+  new: "新",
+  onsite: "现场",
+  recentprogress: "进展",
+  refuterumors: "辟谣",
+};
+
+function normalizeTagText(tag) {
+  return TAG_TEXT_BY_CODE[tag.toLocaleLowerCase("zh-CN")] || tag;
 }
 
 function flattenTagValues(value) {
@@ -121,7 +153,7 @@ function collectItemTags(item, metadata) {
   const seen = new Set();
   const tags = [];
   candidates.flatMap(flattenTagValues).forEach((value) => {
-    const tag = meaningfulTag(value);
+    const tag = normalizeTagText(meaningfulTag(value));
     const key = tag.toLocaleLowerCase("zh-CN");
     if (!tag || seen.has(key)) return;
     seen.add(key);
@@ -130,34 +162,49 @@ function collectItemTags(item, metadata) {
   return tags;
 }
 
-const TAG_COLOR_PALETTE = [
-  ["#1d4ed8", "#dbeafe"],
-  ["#047857", "#d1fae5"],
-  ["#b45309", "#fef3c7"],
-  ["#be123c", "#ffe4e6"],
-  ["#6d28d9", "#ede9fe"],
-  ["#0e7490", "#cffafe"],
-  ["#9f1239", "#fce7f3"],
-  ["#4338ca", "#e0e7ff"],
-];
+// Semantic badge colors instead of per-text hash colors: heat words share one
+// warm tone, freshness words one cool tone, everything else stays neutral so
+// long lists keep a calm, uniform look across platforms.
+const TAG_STYLE_HEAT = ["#dc2626", "#fee2e2"];
+const TAG_STYLE_FRESH = ["#047857", "#d1fae5"];
+const TAG_STYLE_NEUTRAL = ["#526078", "#eef2f7"];
+const HEAT_TAG_TEXTS = new Set(["热", "爆", "沸"]);
+const FRESH_TAG_TEXTS = new Set(["新", "首发"]);
 
-function stableTagColors(value) {
-  const text = nonEmptyText(value) || "default";
-  let hash = 2166136261;
-  for (const character of text) {
-    hash ^= character.codePointAt(0);
-    hash = Math.imul(hash, 16777619);
-  }
-  return TAG_COLOR_PALETTE[(hash >>> 0) % TAG_COLOR_PALETTE.length];
+function tagStyleFor(text) {
+  if (HEAT_TAG_TEXTS.has(text)) return TAG_STYLE_HEAT;
+  if (FRESH_TAG_TEXTS.has(text)) return TAG_STYLE_FRESH;
+  return TAG_STYLE_NEUTRAL;
 }
 
 function appendMetaChip(parent, value) {
   const text = meaningfulTag(value);
   if (!text) return null;
   const chip = appendText(parent, "span", "meta-chip", text);
-  const [foreground, background] = stableTagColors(text);
+  const [foreground, background] = tagStyleFor(text);
   chip.style.setProperty("--tag-color", foreground);
   chip.style.setProperty("--tag-background", background);
+  return chip;
+}
+
+function appendLabelImageChip(parent, imageUrl, fallbackText, title) {
+  const chip = document.createElement("span");
+  chip.className = "meta-chip meta-chip--image";
+  const [foreground, background] = tagStyleFor(fallbackText || "标签");
+  chip.style.setProperty("--tag-color", foreground);
+  chip.style.setProperty("--tag-background", background);
+
+  const image = document.createElement("img");
+  image.className = "hot-label-image";
+  image.src = `/api/image-proxy?url=${encodeURIComponent(imageUrl)}`;
+  image.alt = fallbackText;
+  image.title = title;
+  image.loading = "lazy";
+  image.addEventListener("error", () => {
+    chip.textContent = fallbackText;
+  }, { once: true });
+  chip.appendChild(image);
+  parent.appendChild(chip);
   return chip;
 }
 
@@ -171,8 +218,8 @@ function createItemImage(imageUrl, title, className = "hot-item__image") {
     const fallback = appendText(
       document.createDocumentFragment(),
       "span",
-      className === "hot-label-image" ? "hot-label-image__fallback" : "hot-item__image hot-item__image--fallback",
-      className === "hot-label-image" ? "标签" : "图"
+      "hot-item__image hot-item__image--fallback",
+      "图"
     );
     fallback.setAttribute("aria-label", `${title}图片加载失败`);
     image.replaceWith(fallback);
@@ -220,11 +267,24 @@ function renderItem(item, platform) {
 
   const meta = document.createElement("div");
   meta.className = "hot-item__meta";
-  collectItemTags(item, metadata).forEach((tag) => appendMetaChip(meta, tag));
+  if (platform === "bilibili" && labelImageUrl) {
+    appendLabelImageChip(
+      meta,
+      labelImageUrl,
+      nonEmptyText(metadata.hot_label_mapping) || "标签",
+      title
+    );
+  } else {
+    collectItemTags(item, metadata).forEach((tag) => appendMetaChip(meta, tag));
+  }
   if (meta.childNodes.length > 0) titleAside.appendChild(meta);
 
   if (item?.hot_value !== undefined && item.hot_value !== null && nonEmptyText(item.hot_value)) {
-    appendText(titleAside, "span", "hot-item__hot", `热度 ${item.hot_value}`);
+    const hotValue = document.createElement("span");
+    hotValue.className = "hot-item__hot";
+    appendText(hotValue, "span", "hot-item__hot-label", "热度");
+    appendText(hotValue, "span", "hot-item__hot-value", formatHotValue(item.hot_value));
+    titleAside.appendChild(hotValue);
   }
   if (titleAside.childNodes.length > 0) titleRow.appendChild(titleAside);
   content.appendChild(titleRow);
